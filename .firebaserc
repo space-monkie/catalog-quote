@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "catalog-app-99",
+    "demo": "demo-catalog-quote"
+  }
+}

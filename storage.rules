@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Catalog images live under stores/{storeId}/... and are public to read
+// (they are shown on the public catalog). Only the store owner may upload,
+// images only, capped at 5 MB. Ownership is checked against Firestore.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isStoreOwner(storeId) {
+      return request.auth != null
+        && firestore.get(/databases/(default)/documents/stores/$(storeId)).data.ownerId
+             == request.auth.uid;
+    }
+    function isImageUpload() {
+      return request.resource.contentType.matches('image/.*')
+        && request.resource.size <= 5 * 1024 * 1024;
+    }
+
+    match /stores/{storeId}/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if isStoreOwner(storeId) && isImageUpload();
+      allow delete: if isStoreOwner(storeId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

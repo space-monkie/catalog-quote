@@ -1,0 +1,164 @@
+rules_version = '2';
+
+// Deny by default. Owners read and write only their own stores.
+// Public catalog pages are rendered on the server with the Admin SDK,
+// so anonymous clients never need read access. Buyers never write quotes
+// directly: quotes are created by the server (/api/quotes).
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() {
+      return request.auth != null;
+    }
+    function uid() {
+      return request.auth.uid;
+    }
+    function storePath(storeId) {
+      return /databases/$(db)/documents/stores/$(storeId);
+    }
+    function slugPath(slug) {
+      return /databases/$(db)/documents/slugs/$(slug);
+    }
+    function isStoreOwner(storeId) {
+      return signedIn() && get(storePath(storeId)).data.ownerId == uid();
+    }
+    function isStr(v, max) {
+      return v is string && v.size() <= max;
+    }
+    function isSlug(s) {
+      return s is string && s.size() >= 1 && s.size() <= 60
+        && s.matches('^[a-z0-9]+(-[a-z0-9]+)*$');
+    }
+    // Slugs that would clash with application routes (keep in sync with src/lib/slug.ts).
+    function reservedSlugs() {
+      return ['dashboard', 'login', 'api', 'q', 'quote', 'signup', 'admin',
+              'settings', 'share', 'new', 'static', 'public', 'assets', '_next'];
+    }
+    function isImageAsset(v) {
+      return v is map && v.path is string && v.url is string;
+    }
+
+    function validStore(d) {
+      return d.keys().hasAll(['ownerId', 'name', 'slug', 'logo', 'about', 'brandColor',
+                              'whatsappNumber', 'quotePrefix', 'quoteCounter', 'showPrices',
+                              'currency', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['ownerId', 'name', 'slug', 'logo', 'about', 'brandColor',
+                             'whatsappNumber', 'quotePrefix', 'quoteCounter', 'showPrices',
+                             'currency', 'createdAt', 'updatedAt'])
+        && d.ownerId is string
+        && isStr(d.name, 80) && d.name.size() >= 2
+        && isSlug(d.slug) && d.slug.size() >= 3 && !(d.slug in reservedSlugs())
+        && (d.logo == null || isImageAsset(d.logo))
+        && isStr(d.about, 600)
+        && d.brandColor is string && d.brandColor.matches('^#[0-9a-fA-F]{6}$')
+        && d.whatsappNumber is string && d.whatsappNumber.matches('^\\+[1-9][0-9]{6,14}$')
+        && d.quotePrefix is string && d.quotePrefix.matches('^[A-Z0-9]{1,8}$')
+        && d.quoteCounter is int
+        && d.showPrices is bool
+        && d.currency is string && d.currency.size() == 3
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    function validCategory(d) {
+      return d.keys().hasAll(['name', 'slug', 'order', 'visible', 'sections'])
+        && d.keys().hasOnly(['name', 'slug', 'image', 'description', 'order', 'visible',
+                             'sections', 'createdAt', 'updatedAt'])
+        && isStr(d.name, 80) && d.name.size() >= 1
+        && isSlug(d.slug) && !(d.slug in reservedSlugs())
+        && (!('image' in d) || d.image == null || isImageAsset(d.image))
+        && (!('description' in d) || isStr(d.description, 1000))
+        && d.order is number
+        && d.visible is bool
+        && d.sections is list && d.sections.size() <= 50;
+    }
+
+    function validItem(d) {
+      return d.keys().hasAll(['categoryId', 'name', 'slug', 'order', 'visible'])
+        && d.keys().hasOnly(['categoryId', 'sectionId', 'name', 'slug', 'code', 'description',
+                             'images', 'specs', 'variants', 'price', 'unit', 'order', 'visible',
+                             'createdAt', 'updatedAt'])
+        && d.categoryId is string
+        && (!('sectionId' in d) || d.sectionId == null || d.sectionId is string)
+        && isStr(d.name, 120) && d.name.size() >= 1
+        && isSlug(d.slug)
+        && (!('code' in d) || isStr(d.code, 60))
+        && (!('description' in d) || isStr(d.description, 3000))
+        && (!('images' in d) || (d.images is list && d.images.size() <= 12))
+        && (!('specs' in d) || (d.specs is list && d.specs.size() <= 40))
+        && (!('variants' in d) || (d.variants is list && d.variants.size() <= 10))
+        && (!('price' in d) || d.price == null || (d.price is number && d.price >= 0))
+        && (!('unit' in d) || isStr(d.unit, 20))
+        && d.order is number
+        && d.visible is bool;
+    }
+
+    // ---------- users ----------
+    match /users/{userId} {
+      allow read: if signedIn() && uid() == userId;
+      allow create, update: if signedIn() && uid() == userId
+        && request.resource.data.keys().hasOnly(['email', 'name', 'createdAt'])
+        && isStr(request.resource.data.email, 200)
+        && isStr(request.resource.data.name, 120);
+      allow delete: if false;
+    }
+
+    // ---------- slugs (uniqueness registry) ----------
+    // slugs/{slug} = { storeId }. Created in the same batch as the store it belongs to.
+    match /slugs/{slug} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['storeId'])
+        && request.resource.data.storeId is string
+        && getAfter(storePath(request.resource.data.storeId)).data.ownerId == uid()
+        && getAfter(storePath(request.resource.data.storeId)).data.slug == slug;
+      allow update: if false;
+      allow delete: if signedIn()
+        && get(storePath(resource.data.storeId)).data.ownerId == uid();
+    }
+
+    // ---------- stores ----------
+    match /stores/{storeId} {
+      allow get, list: if signedIn() && resource.data.ownerId == uid();
+      allow create: if signedIn()
+        && request.resource.data.ownerId == uid()
+        && validStore(request.resource.data)
+        && request.resource.data.quoteCounter == 1000
+        && getAfter(slugPath(request.resource.data.slug)).data.storeId == storeId;
+      allow update: if signedIn()
+        && resource.data.ownerId == uid()
+        && request.resource.data.ownerId == resource.data.ownerId
+        && validStore(request.resource.data)
+        // Only the server (Admin SDK, inside a transaction) may move the quote counter.
+        && request.resource.data.quoteCounter == resource.data.quoteCounter
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (request.resource.data.slug == resource.data.slug
+            || getAfter(slugPath(request.resource.data.slug)).data.storeId == storeId);
+      allow delete: if signedIn() && resource.data.ownerId == uid();
+
+      match /categories/{categoryId} {
+        allow read: if isStoreOwner(storeId);
+        allow create, update: if isStoreOwner(storeId) && validCategory(request.resource.data);
+        allow delete: if isStoreOwner(storeId);
+      }
+
+      match /items/{itemId} {
+        allow read: if isStoreOwner(storeId);
+        allow create, update: if isStoreOwner(storeId) && validItem(request.resource.data);
+        allow delete: if isStoreOwner(storeId);
+      }
+    }
+
+    // ---------- quotes ----------
+    // Created only by the server. Owners can read their store's quotes and change status.
+    match /quotes/{quoteId} {
+      allow get, list: if signedIn() && isStoreOwner(resource.data.storeId);
+      allow update: if signedIn() && isStoreOwner(resource.data.storeId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['new', 'contacted', 'closed'];
+      allow create, delete: if false;
+    }
+  }
+}
