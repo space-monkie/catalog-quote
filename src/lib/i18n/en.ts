@@ -64,6 +64,8 @@ export const t = {
       emailInUse: "An account with this email already exists.",
       weakPassword: "Choose a longer password (8+ characters).",
       popupClosed: "The sign-in window was closed.",
+      popupBlocked: "Your browser blocked the sign-in window. Allow pop-ups for this site and try again.",
+      unauthorizedDomain: "Google sign-in is not enabled for this web address yet. Use email and password, or ask the site owner to add this domain in Firebase.",
       generic: "Could not sign in. Please try again.",
     },
   },

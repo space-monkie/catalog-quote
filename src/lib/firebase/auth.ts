@@ -68,6 +68,10 @@ export function authErrorMessage(error: unknown): string {
     case "auth/popup-closed-by-user":
     case "auth/cancelled-popup-request":
       return t.auth.errors.popupClosed;
+    case "auth/popup-blocked":
+      return t.auth.errors.popupBlocked;
+    case "auth/unauthorized-domain":
+      return t.auth.errors.unauthorizedDomain;
     default:
       return t.auth.errors.generic;
   }

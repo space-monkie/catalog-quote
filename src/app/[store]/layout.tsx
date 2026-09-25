@@ -9,6 +9,12 @@ import { t } from "@/lib/i18n/en";
 
 export const revalidate = 60;
 
+// No pages are built ahead of time; each one is rendered on first visit, then cached
+// (ISR) and refreshed every `revalidate` seconds or when the owner saves.
+export function generateStaticParams() {
+  return [];
+}
+
 export default async function StoreLayout({ children, params }: { children: ReactNode; params: Promise<{ store: string }> }) {
   const { store: slug } = await params;
   const store = await getStoreBySlug(slug);

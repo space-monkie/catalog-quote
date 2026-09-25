@@ -9,7 +9,8 @@ export async function uidFromRequest(request: Request): Promise<string | null> {
   try {
     const decoded = await adminAuth().verifyIdToken(token);
     return decoded.uid;
-  } catch {
+  } catch (err) {
+    console.error("verifyIdToken failed:", (err as { code?: string })?.code ?? "unknown");
     return null;
   }
 }

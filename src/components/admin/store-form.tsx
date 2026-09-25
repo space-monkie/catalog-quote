@@ -135,6 +135,7 @@ export function StoreForm(props: Props) {
           const { db } = firebaseClient();
           await updateDoc(doc(db, "stores", storeId), { logo, updatedAt: serverTimestamp() });
         }
+        void requestRevalidate(storeId);
         toast(t.store.created);
         props.onSaved(storeId);
       } else {

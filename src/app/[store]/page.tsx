@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: store.name,
       description,
       url: absoluteUrl(`/${store.slug}`),
-      images: store.logo ? [{ url: store.logo.url }] : [],
+      images: store.logo ? [{ url: store.logo.thumbUrl }] : [],
     },
   };
 }

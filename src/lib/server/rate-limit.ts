@@ -33,8 +33,35 @@ function sweep(now: number, windowMs: number) {
   }
 }
 
+/**
+ * Number of proxies in front of the app that append to X-Forwarded-For.
+ * Google's load balancer (used by App Hosting) appends "<client-ip>,<lb-ip>",
+ * so the client is 1 hop from the right. Entries further left are sent by the
+ * client and cannot be trusted. Override with TRUSTED_PROXY_HOPS if needed.
+ */
+export const DEFAULT_TRUSTED_PROXY_HOPS = 1;
+
+/** Picks the client IP from an X-Forwarded-For value, counting trusted hops from the right. */
+export function clientIpFromForwardedFor(header: string | null, trustedHops = DEFAULT_TRUSTED_PROXY_HOPS): string | null {
+  if (!header) return null;
+  const parts = header
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+  const index = parts.length - 1 - Math.max(0, trustedHops);
+  return parts[Math.max(0, index)];
+}
+
+let loggedHopCount = false;
+
 export function clientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "unknown";
+  const header = request.headers.get("x-forwarded-for");
+  if (header && !loggedHopCount) {
+    // One line per server instance, no addresses: confirms how many hops the platform adds.
+    loggedHopCount = true;
+    console.info(`[rate-limit] x-forwarded-for has ${header.split(",").length} entries on this instance's first request`);
+  }
+  const hops = Number(process.env.TRUSTED_PROXY_HOPS ?? DEFAULT_TRUSTED_PROXY_HOPS);
+  return clientIpFromForwardedFor(header, Number.isFinite(hops) ? hops : DEFAULT_TRUSTED_PROXY_HOPS) ?? request.headers.get("x-real-ip") ?? "unknown";
 }

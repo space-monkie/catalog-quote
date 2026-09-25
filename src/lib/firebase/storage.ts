@@ -57,7 +57,12 @@ export async function copyImageAsset(asset: ImageAsset, basePath: string): Promi
   const id = randomId(12);
   const path = `${basePath}/${id}.${ext}`;
   const thumbPath = `${basePath}/${id}_thumb.${ext}`;
-  const [full, thumb] = await Promise.all([fetch(asset.url).then((r) => r.blob()), fetch(asset.thumbUrl).then((r) => r.blob())]);
+  const download = async (url: string) => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Could not download ${url} (${res.status})`);
+    return res.blob();
+  };
+  const [full, thumb] = await Promise.all([download(asset.url), download(asset.thumbUrl)]);
   const meta = { contentType: full.type || "image/jpeg", cacheControl: "public, max-age=31536000, immutable" };
   const fullRef = ref(storage, path);
   const thumbRef = ref(storage, thumbPath);

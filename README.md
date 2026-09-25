@@ -94,7 +94,7 @@ Sections live inside the category document, so a public category page costs one 
 
 **Admin** pages are client components using the Firebase JS SDK, protected by `firestore.rules` and `storage.rules` (deny by default; owners only touch their own stores; nobody can create quotes from the client; only `status` can change on a quote).
 
-**Public** pages render on the server with the Admin SDK. Reads are wrapped in Next's data cache with one tag per store; pages also revalidate every 60 seconds. When an owner saves, the dashboard calls `POST /api/revalidate` with their Firebase ID token; the server verifies ownership and purges the store's tags. Because App Hosting's CDN also caches pages for the 60-second window, edits appear on the public site within about a minute.
+**Public** pages render on the server with the Admin SDK and are cached with Incremental Static Regeneration: each store, category and item page is rendered on its first visit, then served from cache and refreshed at most every 60 seconds (`generateStaticParams` returns an empty list so Next.js treats them as cacheable). Data reads are tagged per store. When an owner saves, the dashboard calls `POST /api/revalidate` with their Firebase ID token; the server verifies ownership and purges the store's tags on the instance that handles the call. Other server instances and App Hosting's CDN pick up the change when their 60-second window runs out, and `expireTime` in `next.config.ts` stops a CDN from serving an old copy for longer than 3 minutes. In practice, edits show up on the public site within about a minute.
 
 **Quotes.** The buyer's list lives in `localStorage` per store. Sending posts to `/api/quotes`, which validates with zod, checks a honeypot field, applies a per-IP rate limit (10 per 10 minutes, in memory), verifies every item against the live catalog (hidden or deleted items are rejected), assigns the next per-store number (`PREFIX-1001`, `PREFIX-1002`, …) inside a Firestore transaction, and returns the `wa.me` URL. The browser clears the list, shows a confirmation with an "Open WhatsApp again" button, and navigates with `location.href` so mobile browsers don't block it.
 
@@ -141,19 +141,21 @@ Manual QA checklist (375 px wide): store home → category (section tabs scroll 
 
 ## Deploying to App Hosting
 
-1. Push this repository to GitHub.
-2. Firebase console → **App Hosting** → *Get started* → connect the GitHub repo, pick the branch and set the root directory (this folder if the repo has several projects).
-3. Edit `apphosting.yaml` with your web-app config and the backend's URL as `NEXT_PUBLIC_SITE_URL` (App Hosting gives you `https://<backend>--<project>.<region>.hosted.app`; update it again if you add a custom domain later).
-4. App Hosting builds on every push. The Admin SDK uses the backend's service account automatically; nothing to configure. `runConfig` in `apphosting.yaml` keeps the service small (`maxInstances: 2`, 512 MiB).
-5. Add the hosted domain to Authentication → Authorized domains, and set `NEXT_PUBLIC_SITE_URL` accordingly.
-6. Deploy rules/indexes with the Firebase CLI (step 6 above) whenever they change; App Hosting does not deploy them.
+The site URL is compiled into the build (WhatsApp quote links, QR codes, link previews), and creating a backend starts a build straight away, so set it first.
 
-Rollback: App Hosting keeps previous rollouts; pick one in the console to roll back.
+1. Pick a backend ID and region. The default domain is `https://<backend-id>--<project-id>.<region>.hosted.app`; this repo is set up for backend `catalog-quote` in `asia-southeast1` (Singapore, the closest App Hosting region to India). Put that URL in `NEXT_PUBLIC_SITE_URL` in `apphosting.yaml` together with your web-app config, commit and push to GitHub.
+2. Firebase console > **App Hosting** > *Get started*: region `asia-southeast1`, connect GitHub (authorize the Firebase app on the account that owns the repo), pick the repo, root directory `/`, live branch `main`, automatic rollouts on, backend ID `catalog-quote`, runtime **Node.js 24** (it must match `engines` in `package.json`), and link the existing web app. *Finish and deploy*.
+3. Authentication > Settings > **Authorized domains**: add the hosted.app domain (and `localhost` if you test Google sign-in locally against the real project). Without it Google sign-in fails with `auth/unauthorized-domain`.
+4. After the first rollout, check the URL on the backend page matches `NEXT_PUBLIC_SITE_URL`. If it differs, fix the value and push again; `NEXT_PUBLIC_*` values only change with a new build.
+5. The backend runs as `firebase-app-hosting-compute@<project>.iam.gserviceaccount.com`, which is granted `roles/firebase.sdkAdminServiceAgent` (Firestore access for the Admin SDK). No key file is needed.
+6. Deploy rules/indexes with the Firebase CLI whenever they change (`npm run deploy:rules`); App Hosting does not deploy them.
+
+Every push to `main` rolls out automatically. Rollback: App Hosting keeps previous rollouts; pick one in the console to roll back.
 
 ## Operations notes
 
-- **Cache freshness.** Public pages are cached 60 s at the CDN and revalidated on demand at the origin when an owner saves. With more than one Cloud Run instance, the on-demand purge only reaches the instance that served the request; the 60 s timer covers the rest.
-- **Rate limit** is per server instance and resets on restart. For stronger protection enable App Check and/or move the counter to Firestore.
+- **Cache freshness.** Public pages are ISR-cached for 60 s and purged on demand at the origin when an owner saves. The purge only reaches the server instance that handled it; other instances and the CDN refresh within 60 s (at most 3 minutes under `expireTime`).
+- **Rate limit** is per server instance and resets on restart. The client IP is read from the right-hand end of `X-Forwarded-For` (the entry Google's load balancer appends), because the left-hand entries can be forged. Each instance logs how many entries the header had on its first request; if that is more than 2, set `TRUSTED_PROXY_HOPS` in `apphosting.yaml`. For stronger protection enable App Check and/or move the counter to Firestore.
 - **Quote numbers** are allocated in a transaction on the store document; the security rules stop clients from changing `quoteCounter`.
 - **Costs.** Public pages read one store doc + one category list + one items query per (uncached) render. Images are served straight from Cloud Storage. Keep an eye on Storage egress if catalogs get large photo galleries.
 - **Out of scope for now:** payments, inventory, custom domains, themes beyond logo/color, staff accounts, CSV import, search, analytics, WhatsApp Business API, translations (all UI text is in `src/lib/i18n/en.ts` to make that easy).

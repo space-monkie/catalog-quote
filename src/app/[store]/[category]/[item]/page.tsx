@@ -10,6 +10,12 @@ import { t } from "@/lib/i18n/en";
 
 export const revalidate = 60;
 
+// No pages are built ahead of time; each one is rendered on first visit, then cached
+// (ISR) and refreshed every `revalidate` seconds or when the owner saves.
+export function generateStaticParams() {
+  return [];
+}
+
 type Props = { params: Promise<{ store: string; category: string; item: string }> };
 
 async function load(params: Props["params"]) {
@@ -29,7 +35,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { store, category, item } = data;
   const title = `${item.name}${item.code ? ` (${item.code})` : ""} | ${store.name}`;
   const description = item.description?.slice(0, 200) || `${item.name} – ${category.name} – ${store.name}`;
-  const image = item.images[0]?.url ?? store.logo?.url;
+  const image = item.images[0]?.thumbUrl ?? store.logo?.thumbUrl;
   return {
     title: { absolute: title },
     description,
