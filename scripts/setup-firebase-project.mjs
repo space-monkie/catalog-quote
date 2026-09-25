@@ -6,8 +6,10 @@
  *   - creates the default Cloud Storage bucket in the given location
  *   - reports the billing plan
  *
+ *   - optionally adds domains to Authentication > Authorized domains (--add-domains=a.com,b.com)
+ *
  * Uses the Firebase CLI's own login (run `npx firebase login` first).
- *   node scripts/setup-firebase-project.mjs <projectId> [location]
+ *   node scripts/setup-firebase-project.mjs <projectId> [location] [--add-domains=a,b]
  */
 import { createRequire } from "node:module";
 
@@ -18,8 +20,11 @@ const { Client } = require("firebase-tools/lib/apiv2");
 const { ensure } = require("firebase-tools/lib/ensureApiEnabled");
 const identityPlatform = require("firebase-tools/lib/gcp/identityPlatform");
 
-const project = process.argv[2];
-const location = (process.argv[3] || "asia-south1").toLowerCase();
+const positional = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const addDomainsArg = process.argv.slice(2).find((a) => a.startsWith("--add-domains="));
+const domainsToAdd = addDomainsArg ? addDomainsArg.split("=")[1].split(",").map((d) => d.trim()).filter(Boolean) : [];
+const project = positional[0];
+const location = (positional[1] || "asia-south1").toLowerCase();
 if (!project) {
   console.error("Usage: node scripts/setup-firebase-project.mjs <projectId> [location]");
   process.exit(1);
@@ -77,6 +82,22 @@ try {
     `Google sign-in: needs the console (${describe(err)}). ` +
       `Open https://console.firebase.google.com/project/${project}/authentication/providers and enable Google.`,
   );
+}
+
+// ---- authorized domains (for Google sign-in popups/redirects) ----
+if (domainsToAdd.length) {
+  try {
+    const config = await identityPlatform.getConfig(project);
+    const current = config.authorizedDomains ?? [];
+    const missing = domainsToAdd.filter((d) => !current.includes(d));
+    if (missing.length) {
+      await identityPlatform.updateConfig(project, { authorizedDomains: [...current, ...missing] }, "authorizedDomains");
+    }
+    const after = (await identityPlatform.getConfig(project)).authorizedDomains ?? [];
+    summary.push(`Authorized domains: ${after.join(", ")}${missing.length ? ` (added ${missing.join(", ")})` : " (nothing to add)"}`);
+  } catch (err) {
+    summary.push(`Authorized domains: FAILED (${describe(err)})`);
+  }
 }
 
 // ---- storage default bucket ----
