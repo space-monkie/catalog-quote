@@ -33,3 +33,8 @@ env:
   - variable: NEXT_PUBLIC_USE_EMULATORS
     value: "false"
     availability: [BUILD, RUNTIME]
+  # App Hosting appends three entries to X-Forwarded-For (client, then two Google hops),
+  # so the buyer's IP is two entries from the right. Used by the quote rate limit.
+  - variable: TRUSTED_PROXY_HOPS
+    value: "2"
+    availability: [RUNTIME]
