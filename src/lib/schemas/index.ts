@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RESERVED_SLUGS, SLUG_PATTERN } from "@/lib/slug";
+import { RESERVED_CATEGORY_SLUGS, RESERVED_SLUGS, SLUG_PATTERN } from "@/lib/slug";
 
 // zod schemas shared by client forms, the seed script and API routes.
 
@@ -55,7 +55,7 @@ export const sectionSchema = z.object({
 
 export const categoryFormSchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(80),
-  slug: slugSchema.refine((s) => !RESERVED_SLUGS.includes(s), "This link is reserved"),
+  slug: slugSchema.refine((s) => !RESERVED_CATEGORY_SLUGS.includes(s), "This link is reserved"),
   description: z.string().trim().max(1000).default(""),
   image: imageAssetSchema.nullable(),
   visible: z.boolean(),

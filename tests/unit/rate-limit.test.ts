@@ -16,6 +16,17 @@ describe("checkRateLimit", () => {
   });
 });
 
+describe("checkRateLimit cost", () => {
+  it("counts a batch as several requests", () => {
+    const opts = { limit: 10, windowMs: 1000 };
+    const key = `batch-${Math.random()}`;
+    expect(checkRateLimit(key, opts, 0, 8).ok).toBe(true);
+    expect(checkRateLimit(key, opts, 1, 3).ok).toBe(false);
+    expect(checkRateLimit(key, opts, 2, 2).ok).toBe(true);
+    expect(checkRateLimit(key, opts, 3).ok).toBe(false);
+  });
+});
+
 describe("clientIpFromForwardedFor", () => {
   it("takes the entry the trusted proxy appended, not the client-supplied first entry", () => {
     // Google's load balancer appends "<client-ip>,<lb-ip>" to whatever the client sent.

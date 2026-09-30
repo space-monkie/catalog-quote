@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/admin/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,25 @@ import { PageSpinner } from "@/components/ui/spinner";
 import { authErrorMessage, signInWithEmail, signInWithGoogle, signUpWithEmail } from "@/lib/firebase/auth";
 import { t } from "@/lib/i18n/en";
 
+/** Only allow returning to our own consent screen or dashboard (no open redirects). */
+function safeNext(value: string | null): string {
+  if (!value || value.startsWith("//")) return "/dashboard";
+  if (value.startsWith("/oauth/authorize?") || value === "/dashboard" || value.startsWith("/dashboard/")) return value;
+  return "/dashboard";
+}
+
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<PageSpinner />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const next = safeNext(useSearchParams().get("next"));
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -21,8 +37,8 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!loading && user) router.replace("/dashboard");
-  }, [user, loading, router]);
+    if (!loading && user) router.replace(next);
+  }, [user, loading, router, next]);
 
   if (loading || user) return <PageSpinner />;
 
@@ -33,7 +49,7 @@ export default function LoginPage() {
     try {
       if (mode === "signin") await signInWithEmail(email.trim(), password);
       else await signUpWithEmail(name, email.trim(), password);
-      router.replace("/dashboard");
+      router.replace(next);
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {
@@ -46,7 +62,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await signInWithGoogle();
-      router.replace("/dashboard");
+      router.replace(next);
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {

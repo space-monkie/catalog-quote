@@ -1,7 +1,7 @@
 // Slug helpers shared by client, server and the seed script.
 
-/** Slugs that would clash with application routes. Keep in sync with firestore.rules. */
-export const RESERVED_SLUGS = [
+/** Category slugs that would clash with routes under /{store}/ (keep in sync with firestore.rules). */
+export const RESERVED_CATEGORY_SLUGS = [
   "dashboard",
   "login",
   "api",
@@ -17,6 +17,9 @@ export const RESERVED_SLUGS = [
   "assets",
   "_next",
 ];
+
+/** Store slugs that would clash with top-level routes (keep in sync with firestore.rules). */
+export const RESERVED_SLUGS = [...RESERVED_CATEGORY_SLUGS, "mcp", "oauth"];
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_SLUG_LENGTH = 60;
@@ -40,6 +43,18 @@ export function isValidSlug(slug: string): boolean {
 
 export function isReservedSlug(slug: string): boolean {
   return RESERVED_SLUGS.includes(slug);
+}
+
+export function isReservedCategorySlug(slug: string): boolean {
+  return RESERVED_CATEGORY_SLUGS.includes(slug);
+}
+
+/**
+ * Prefix to range-query existing slugs before calling uniqueSlug(root, ...). uniqueSlug may
+ * shorten `root` to fit a "-N" suffix (up to 6 chars), so query by that shortened stem.
+ */
+export function slugQueryStem(root: string, maxLength = MAX_SLUG_LENGTH): string {
+  return root.slice(0, maxLength - 6).replace(/-+$/g, "");
 }
 
 /**

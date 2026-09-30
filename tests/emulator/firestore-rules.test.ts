@@ -173,3 +173,58 @@ describe("quotes", () => {
     await assertFails(setDoc(doc(owner, "quotes", "quote2"), { storeId: STORE, status: "new" }));
   });
 });
+
+describe("connected AI assistants (mcpGrants) and OAuth data", () => {
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "mcpGrants", "g1"), { uid: OWNER, clientId: "https://claude.ai/oauth/mcp-oauth-client-metadata", clientName: "Claude", storeIds: [STORE], scopes: ["catalog:read"] });
+      await setDoc(doc(db, "mcpGrants", "g2"), { uid: OTHER, clientId: "x", clientName: "Other", storeIds: [], scopes: [] });
+      await setDoc(doc(db, "oauthTokens", "t1"), { kind: "access", uid: OWNER, grantId: "g1" });
+      await setDoc(doc(db, "oauthCodes", "c1"), { uid: OWNER });
+      await setDoc(doc(db, "oauthClients", "dcr_x"), { clientName: "App" });
+    });
+  });
+
+  it("owners can list and disconnect their own grants only", async () => {
+    const db = env.authenticatedContext(OWNER).firestore();
+    await assertSucceeds(getDocs(query(collection(db, "mcpGrants"), where("uid", "==", OWNER))));
+    await assertFails(getDoc(doc(db, "mcpGrants", "g2")));
+    await assertFails(getDocs(collection(db, "mcpGrants")));
+    await assertFails(deleteDoc(doc(db, "mcpGrants", "g2")));
+    await assertSucceeds(deleteDoc(doc(db, "mcpGrants", "g1")));
+  });
+
+  it("nobody can create or edit grants from the client", async () => {
+    const db = env.authenticatedContext(OWNER).firestore();
+    await assertFails(setDoc(doc(db, "mcpGrants", "g3"), { uid: OWNER, storeIds: [STORE], scopes: ["catalog:write"] }));
+    await assertFails(updateDoc(doc(db, "mcpGrants", "g1"), { scopes: ["catalog:write", "quotes:write"] }));
+  });
+
+  it("tokens, codes and OAuth clients are server-only", async () => {
+    const db = env.authenticatedContext(OWNER).firestore();
+    await assertFails(getDoc(doc(db, "oauthTokens", "t1")));
+    await assertFails(getDoc(doc(db, "oauthCodes", "c1")));
+    await assertFails(getDoc(doc(db, "oauthClients", "dcr_x")));
+    await assertFails(setDoc(doc(db, "oauthTokens", "t2"), { kind: "access", uid: OWNER }));
+    const anon = env.unauthenticatedContext().firestore();
+    await assertFails(getDocs(query(collection(anon, "mcpGrants"), where("uid", "==", OWNER))));
+  });
+
+  it("categories may still use the connector words as links (only store links are reserved)", async () => {
+    await seedStore();
+    const db = env.authenticatedContext(OWNER).firestore();
+    await assertSucceeds(setDoc(doc(db, "stores", STORE, "categories", "cat-mcp"), { ...validCategory(), slug: "mcp" }));
+    await assertFails(setDoc(doc(db, "stores", STORE, "categories", "cat-quote"), { ...validCategory(), slug: "quote" }));
+  });
+
+  it("stores cannot take the connector route slugs", async () => {
+    const db = env.authenticatedContext(OWNER).firestore();
+    for (const slug of ["mcp", "oauth"]) {
+      const batch = writeBatch(db);
+      batch.set(doc(db, "stores", `s-${slug}`), validStore(OWNER, slug));
+      batch.set(doc(db, "slugs", slug), { storeId: `s-${slug}` });
+      await assertFails(batch.commit());
+    }
+  });
+});

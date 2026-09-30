@@ -48,3 +48,6 @@ firestore-debug.log
 ui-debug.log
 storage-debug.log
 .firebase/
+
+# temporary emulator exports
+firebase-export-*/

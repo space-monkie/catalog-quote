@@ -31,9 +31,12 @@ service cloud.firestore {
         && s.matches('^[a-z0-9]+(-[a-z0-9]+)*$');
     }
     // Slugs that would clash with application routes (keep in sync with src/lib/slug.ts).
-    function reservedSlugs() {
+    function reservedCategorySlugs() {
       return ['dashboard', 'login', 'api', 'q', 'quote', 'signup', 'admin',
               'settings', 'share', 'new', 'static', 'public', 'assets', '_next'];
+    }
+    function reservedSlugs() {
+      return reservedCategorySlugs().concat(['mcp', 'oauth']);
     }
     function isImageAsset(v) {
       return v is map && v.path is string && v.url is string;
@@ -66,7 +69,7 @@ service cloud.firestore {
         && d.keys().hasOnly(['name', 'slug', 'image', 'description', 'order', 'visible',
                              'sections', 'createdAt', 'updatedAt'])
         && isStr(d.name, 80) && d.name.size() >= 1
-        && isSlug(d.slug) && !(d.slug in reservedSlugs())
+        && isSlug(d.slug) && !(d.slug in reservedCategorySlugs())
         && (!('image' in d) || d.image == null || isImageAsset(d.image))
         && (!('description' in d) || isStr(d.description, 1000))
         && d.order is number
@@ -149,6 +152,15 @@ service cloud.firestore {
         allow create, update: if isStoreOwner(storeId) && validItem(request.resource.data);
         allow delete: if isStoreOwner(storeId);
       }
+    }
+
+    // ---------- connected AI assistants (MCP connector grants) ----------
+    // Created by the server when an owner approves a connection. Owners can see and
+    // disconnect their own. OAuth codes, tokens and clients are server-only (no rules).
+    match /mcpGrants/{grantId} {
+      allow get, list: if signedIn() && resource.data.uid == uid();
+      allow delete: if signedIn() && resource.data.uid == uid();
+      allow create, update: if false;
     }
 
     // ---------- quotes ----------

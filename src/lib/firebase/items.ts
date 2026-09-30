@@ -19,7 +19,7 @@ import { itemFromData } from "./converters";
 import { copyImageAsset, deleteImageAssets, imagePaths } from "./storage";
 import type { ItemForm } from "@/lib/schemas";
 import type { Item } from "@/lib/schemas/types";
-import { slugify, uniqueSlug } from "@/lib/slug";
+import { slugify, slugQueryStem, uniqueSlug } from "@/lib/slug";
 
 export function listenItems(storeId: string, cb: (items: Item[]) => void, onError?: (e: Error) => void): Unsubscribe {
   const { db } = firebaseClient();
@@ -58,12 +58,13 @@ export function newItemId(storeId: string): string {
 export async function ensureUniqueItemSlug(storeId: string, base: string, excludeItemId?: string): Promise<string> {
   const { db } = firebaseClient();
   const root = slugify(base) || "item";
+  const stem = slugQueryStem(root);
   const taken = new Set<string>();
-  // Only slugs that start with the root can collide; fetch them with a prefix range query.
+  // Only slugs that start with the (possibly shortened) root can collide: prefix range query.
   const q = query(
     collection(db, "stores", storeId, "items"),
-    where("slug", ">=", root),
-    where("slug", "<=", `${root}`),
+    where("slug", ">=", stem),
+    where("slug", "<=", `${stem}`),
   );
   const snap = await getDocs(q);
   snap.docs.forEach((d) => {

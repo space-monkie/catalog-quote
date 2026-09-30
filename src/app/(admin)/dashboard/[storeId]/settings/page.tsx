@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/components/admin/store-context";
 import { StoreForm } from "@/components/admin/store-form";
+import { ConnectorsPanel } from "@/components/admin/connectors-panel";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { PageTitle } from "@/components/ui/misc";
@@ -23,6 +24,8 @@ export default function SettingsPage() {
     <main className="mx-auto w-full max-w-lg px-4 py-5">
       <PageTitle title={t.dashboard.nav.settings} subtitle={store.name} />
       <StoreForm key={store.id} mode="edit" store={store} />
+
+      <ConnectorsPanel />
 
       <section className="mt-10 rounded-2xl border border-red-200 p-4">
         <h2 className="text-sm font-semibold text-red-700">{t.store.deleteStore}</h2>

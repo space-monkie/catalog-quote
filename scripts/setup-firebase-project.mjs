@@ -7,9 +7,10 @@
  *   - reports the billing plan
  *
  *   - optionally adds domains to Authentication > Authorized domains (--add-domains=a.com,b.com)
+ *   - optionally turns on Firestore TTL cleanup for expired OAuth codes/tokens (--ttl)
  *
  * Uses the Firebase CLI's own login (run `npx firebase login` first).
- *   node scripts/setup-firebase-project.mjs <projectId> [location] [--add-domains=a,b]
+ *   node scripts/setup-firebase-project.mjs <projectId> [location] [--add-domains=a,b] [--ttl]
  */
 import { createRequire } from "node:module";
 
@@ -97,6 +98,24 @@ if (domainsToAdd.length) {
     summary.push(`Authorized domains: ${after.join(", ")}${missing.length ? ` (added ${missing.join(", ")})` : " (nothing to add)"}`);
   } catch (err) {
     summary.push(`Authorized domains: FAILED (${describe(err)})`);
+  }
+}
+
+// ---- TTL: Firestore deletes expired OAuth codes, tokens and cached client metadata ----
+if (process.argv.includes("--ttl")) {
+  const firestoreAdmin = new Client({ urlPrefix: "https://firestore.googleapis.com", apiVersion: "v1" });
+  for (const group of ["oauthCodes", "oauthTokens", "oauthClientMetadataCache", "oauthClients", "mcpGrants"]) {
+    try {
+      await firestoreAdmin.patch(
+        `projects/${project}/databases/(default)/collectionGroups/${group}/fields/expiresAt`,
+        { ttlConfig: {} },
+        { queryParams: { updateMask: "ttlConfig" } },
+      );
+      summary.push(`TTL on ${group}.expiresAt: requested (takes a few minutes to activate)`);
+    } catch (err) {
+      const msg = describe(err);
+      summary.push(/already|ACTIVE|CREATING/i.test(msg) ? `TTL on ${group}.expiresAt: already set` : `TTL on ${group}.expiresAt: FAILED (${msg})`);
+    }
   }
 }
 

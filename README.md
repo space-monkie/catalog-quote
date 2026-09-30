@@ -10,10 +10,11 @@ A multi-tenant product catalog builder. Businesses build a mobile-friendly catal
 1. [Local development](#local-development)
 2. [Project layout](#project-layout)
 3. [How it works](#how-it-works)
-4. [Testing](#testing)
-5. [Firebase project setup](#firebase-project-setup)
-6. [Deploying to App Hosting](#deploying-to-app-hosting)
-7. [Operations notes](#operations-notes)
+4. [AI assistants (MCP connector)](#ai-assistants-mcp-connector)
+5. [Testing](#testing)
+6. [Firebase project setup](#firebase-project-setup)
+7. [Deploying to App Hosting](#deploying-to-app-hosting)
+8. [Operations notes](#operations-notes)
 
 ## Local development
 
@@ -102,6 +103,41 @@ Sections live inside the category document, so a public category page costs one 
 
 **App Check** is not enabled yet. `src/lib/server/app-check.ts` is the hook to fill in when you turn it on.
 
+## AI assistants (MCP connector)
+
+Owners can connect Claude, ChatGPT or other MCP clients to their catalog. The connector URL is `<site>/mcp` (shown in the dashboard under **Settings > AI assistants**).
+
+**What an assistant can do**, per store the owner picks on the consent screen:
+
+| Access | Tools |
+| --- | --- |
+| View (always) | `list_stores`, `get_catalog`, `get_item`, `list_quotes`, `get_quote` |
+| Changes (if "Allow changes" is on) | `create_category`, `update_category`, `add_section`, `create_item`, `update_item`, `set_visibility`, `update_quote_status` |
+
+New categories and items are always created hidden; publishing goes through `set_visibility` (marked destructive/open-world so clients ask first). There are no delete or photo tools. A read-only connection doesn't even see the write tools.
+
+**How it works**
+
+- `/mcp` is a stateless Streamable HTTP endpoint built on `@modelcontextprotocol/server` (serves both 2025-era and 2026-07-28 clients).
+- The app is its own OAuth 2.1 authorization server (`src/lib/oauth/`), because Firebase Auth can't act as one for third-party apps. Owners sign in on the consent screen with their normal account.
+  - Discovery: `/.well-known/oauth-protected-resource/mcp` (RFC 9728) and `/.well-known/oauth-authorization-server` (RFC 8414).
+  - Clients identify themselves with Client ID Metadata Documents (what Claude and ChatGPT use) or Dynamic Client Registration at `/oauth/register` (deprecated, kept for older clients). All clients are public: PKCE S256 is required.
+  - `/oauth/authorize` (consent page), `/oauth/token` (authorization_code and refresh_token), `/oauth/revoke`.
+  - Tokens are opaque, stored as SHA-256 hashes in Firestore, bound to the `<site>/mcp` resource. Access tokens last 1 hour; refresh tokens rotate (60 days), a refresh retried within 60 s is tolerated, older reuse revokes the connection. Authorization responses include `iss` (RFC 9207).
+  - A connection stops working when the owner disconnects it in Settings, reconnects the same app, or their account is disabled, deleted or signed out everywhere.
+- Collections (server-only unless noted): `oauthClients`, `oauthClientMetadataCache`, `oauthCodes`, `oauthTokens`, `mcpGrants` (owners can read and delete their own). Expired entries are removed by Firestore TTL policies (`fieldOverrides` in `firestore.indexes.json`).
+
+**Testing the connector locally**
+
+```bash
+npm run emulators                                           # terminal 1
+NEXT_PUBLIC_SITE_URL=http://localhost:3100 npx next build   # terminal 2 (uses .env.local emulator settings)
+NEXT_PUBLIC_SITE_URL=http://localhost:3100 npx next start -p 3100
+E2E_BASE_URL=http://localhost:3100 npx tsx scripts/mcp-e2e.ts   # terminal 3: full OAuth + tool flow
+```
+
+To try it from a real client, deploy and paste the connector URL into Claude (Customize > Connectors > Add custom connector) or ChatGPT (Developer mode, then chatgpt.com/plugins).
+
 ## Testing
 
 ```bash
@@ -134,7 +170,9 @@ Manual QA checklist (375 px wide): store home → category (section tabs scroll 
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `NEXT_PUBLIC_FIREBASE_API_KEY`, `..._AUTH_DOMAIN`, `..._PROJECT_ID`, `..._STORAGE_BUCKET`, `..._MESSAGING_SENDER_ID`, `..._APP_ID` | build + runtime | Web app config (not secret) |
-| `NEXT_PUBLIC_SITE_URL` | build + runtime | Public origin; used in Open Graph tags and the `/q/{id}` link in WhatsApp messages |
+| `NEXT_PUBLIC_SITE_URL` | build + runtime | Public origin; used in Open Graph tags, the `/q/{id}` link in WhatsApp messages, and as the OAuth issuer and connector URL (`<site>/mcp`). Changing it disconnects every AI assistant. |
+| `TRUSTED_PROXY_HOPS` | runtime | How many proxies append to `X-Forwarded-For` (2 on App Hosting); used by the quote rate limit |
+| `MCP_ALLOWED_HOSTS` | runtime (optional) | Extra hostnames allowed as `Origin` on `/mcp` (and as `Host` when running on localhost) |
 | `NEXT_PUBLIC_USE_EMULATORS` | build + runtime | `true` locally to use the emulators |
 | `FIRESTORE_EMULATOR_HOST`, `FIREBASE_AUTH_EMULATOR_HOST`, `FIREBASE_STORAGE_EMULATOR_HOST` | runtime (local only) | Point the Admin SDK and seed script at the emulators |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | runtime (optional) | Service-account JSON for hosts without Application Default Credentials. Not needed on App Hosting. |

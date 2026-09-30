@@ -11,16 +11,17 @@ export type RateLimitOptions = { limit: number; windowMs: number };
 
 export const QUOTE_RATE_LIMIT: RateLimitOptions = { limit: 10, windowMs: 10 * 60 * 1000 };
 
-export function checkRateLimit(key: string, options: RateLimitOptions, now = Date.now()): { ok: boolean; retryAfterMs: number } {
+/** `cost` lets one request count as several (e.g. a JSON-RPC batch of tool calls). */
+export function checkRateLimit(key: string, options: RateLimitOptions, now = Date.now(), cost = 1): { ok: boolean; retryAfterMs: number } {
   sweep(now, options.windowMs);
   const bucket = buckets.get(key) ?? { timestamps: [] };
   bucket.timestamps = bucket.timestamps.filter((t) => now - t < options.windowMs);
-  if (bucket.timestamps.length >= options.limit) {
+  if (bucket.timestamps.length + Math.max(1, cost) > options.limit) {
     buckets.set(key, bucket);
-    const retryAfterMs = options.windowMs - (now - bucket.timestamps[0]);
+    const retryAfterMs = bucket.timestamps.length ? options.windowMs - (now - bucket.timestamps[0]) : options.windowMs;
     return { ok: false, retryAfterMs };
   }
-  bucket.timestamps.push(now);
+  for (let i = 0; i < Math.max(1, cost); i++) bucket.timestamps.push(now);
   buckets.set(key, bucket);
   return { ok: true, retryAfterMs: 0 };
 }
@@ -51,6 +52,13 @@ export function clientIpFromForwardedFor(header: string | null, trustedHops = DE
   if (!parts.length) return null;
   const index = parts.length - 1 - Math.max(0, trustedHops);
   return parts[Math.max(0, index)];
+}
+
+/** Rate-limit key for an IP: IPv6 clients control a whole /64, so key on that. */
+export function ipRateKey(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const groups = ip.replace(/^\[|\]$/g, "").split(":");
+  return `${groups.slice(0, 4).join(":")}::/64`;
 }
 
 let loggedHopCount = false;

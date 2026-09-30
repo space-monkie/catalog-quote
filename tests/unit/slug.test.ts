@@ -41,6 +41,25 @@ describe("isValidSlug / isReservedSlug", () => {
   });
 });
 
+describe("slug stems and reserved lists", () => {
+  it("queries by a stem that still covers shortened -N candidates", async () => {
+    const { slugQueryStem } = await import("@/lib/slug");
+    const root = "wp-801-interlocking-rubber-paver-mould-zig-zag-design-sixty"; // 59 chars
+    const candidate = uniqueSlug(root, [root]);
+    const stem = slugQueryStem(root);
+    expect(candidate.startsWith(stem)).toBe(true);
+    expect(root.startsWith(stem)).toBe(true);
+  });
+
+  it("reserves the connector routes for stores only", async () => {
+    const { isReservedCategorySlug } = await import("@/lib/slug");
+    expect(isReservedSlug("mcp")).toBe(true);
+    expect(isReservedSlug("oauth")).toBe(true);
+    expect(isReservedCategorySlug("mcp")).toBe(false);
+    expect(isReservedCategorySlug("quote")).toBe(true);
+  });
+});
+
 describe("uniqueSlug", () => {
   it("returns the base when free", () => {
     expect(uniqueSlug("pillar", [])).toBe("pillar");
